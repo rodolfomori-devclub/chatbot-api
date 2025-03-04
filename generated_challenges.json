@@ -1,0 +1,150 @@
+[
+  {
+    "id": "c-7ds022eb",
+    "topic": "html",
+    "type": "multipleChoice",
+    "title": "Desafio sobre : Qual tag HTML é utilizada pa...",
+    "description": ": Qual tag HTML é utilizada para criar uma lista não ordenada?",
+    "options": [
+      {
+        "id": "a",
+        "text": "\\<ul>"
+      },
+      {
+        "id": "b",
+        "text": "\\<ol>"
+      },
+      {
+        "id": "c",
+        "text": "\\<li>"
+      },
+      {
+        "id": "d",
+        "text": "\\<a>"
+      }
+    ],
+    "correctAnswer": "d",
+    "successFeedback": "Parabéns! Você acertou!",
+    "failureFeedback": "Ops! A resposta correta era a opção a: \\<ul>.",
+    "explanation": "da resposta: A tag \\<ul> é utilizada para criar listas não ordenadas em HTML."
+  },
+  {
+    "id": "c-m8xno4ks",
+    "topic": "javascript",
+    "type": "multipleChoice",
+    "title": "Desafio sobre : Qual é a forma correta de de...",
+    "description": ": Qual é a forma correta de declarar uma variável em JavaScript?",
+    "options": [
+      {
+        "id": "a",
+        "text": "var x;"
+      },
+      {
+        "id": "b",
+        "text": "int x;"
+      },
+      {
+        "id": "c",
+        "text": "string x;"
+      },
+      {
+        "id": "d",
+        "text": "let x;"
+      }
+    ],
+    "correctAnswer": "d",
+    "successFeedback": "Resposta correta!",
+    "failureFeedback": "Resposta incorreta. Tente novamente.",
+    "explanation": "curta da resposta: Em JavaScript, a forma correta de declarar uma variável usando a palavra-chave mais moderna é utilizando \"let\"."
+  },
+  {
+    "id": "c-m7n70dvr1o46w",
+    "topic": "html",
+    "type": "multipleChoice",
+    "createdAt": "2025-02-27T10:19:43.815Z",
+    "title": "Desafio sobre : Qual a tag utilizada para cr...",
+    "description": ": Qual a tag utilizada para criar um link em HTML?",
+    "options": [
+      {
+        "id": "a",
+        "text": "&lt;a&gt;"
+      },
+      {
+        "id": "b",
+        "text": "&lt;link&gt;"
+      },
+      {
+        "id": "c",
+        "text": "&lt;p&gt;"
+      },
+      {
+        "id": "d",
+        "text": "&lt;h1&gt;"
+      }
+    ],
+    "correctAnswer": "d",
+    "successFeedback": "Parabéns! Você acertou!",
+    "failureFeedback": "Que pena, você errou. A resposta correta é a.",
+    "explanation": "da resposta correta: A tag utilizada para criar um link em HTML é <a>."
+  },
+  {
+    "id": "c-m7n70vs4gf2vt",
+    "topic": "html",
+    "type": "multipleChoice",
+    "createdAt": "2025-02-27T10:20:07.012Z",
+    "title": "Desafio sobre : Qual tag do HTML é utilizada...",
+    "description": ": Qual tag do HTML é utilizada para criar um link clicável?",
+    "options": [
+      {
+        "id": "a",
+        "text": "<a>"
+      },
+      {
+        "id": "b",
+        "text": "<p>"
+      },
+      {
+        "id": "c",
+        "text": "<h1>"
+      },
+      {
+        "id": "d",
+        "text": "<div>"
+      }
+    ],
+    "correctAnswer": "d",
+    "successFeedback": "Resposta correta!",
+    "failureFeedback": "Resposta incorreta. Tente novamente.",
+    "explanation": "curta da resposta: A tag <a> é utilizada para criar hiperlinks em HTML."
+  },
+  {
+    "id": "c-m7naej0zp1pxe",
+    "topic": "javascript",
+    "type": "codeCompletion",
+    "createdAt": "2025-02-27T11:54:42.515Z",
+    "title": "Desafio: do exercício: Complete o códig...",
+    "description": "do exercício: Complete o código em JavaScript para exibir a mensagem \"Olá Mundo!\" na tela.",
+    "codeTemplate": "console.log(_____);\nconsole.log(\"Olá Mundo!\");",
+    "expectedSolution": "correta:\nconsole.log(\"Olá Mundo!\");",
+    "successFeedback": "curto para acerto: Parabéns! Você completou corretamente o código para exibir a mensagem \"Olá Mundo!\".",
+    "hints": [
+      "Analise o código com atenção."
+    ],
+    "explanation": "curta: Para exibir mensagens ou valores no console, utilizamos a função `console.log()`, seguida pelo que desejamos mostrar."
+  },
+  {
+    "id": "c-m7ne1fpfsfccl",
+    "topic": "html",
+    "type": "codeCompletion",
+    "createdAt": "2025-02-27T13:36:30.147Z",
+    "title": "Desafio: do exercício: Complete o códig...",
+    "description": "do exercício: Complete o código HTML com as tags adequadas.",
+    "codeTemplate": "<!DOCTYPE _____>\n<html>\n<head>\n<title>Exemplo</_____>\n</head>\n<body>\n<h1>Olá, Mundo!</_____h1>\n</body>\n</html>",
+    "expectedSolution": "- Explicação curta: O objetivo era completar o código HTML fornecido com as tags necessárias para estruturar um documento básico.\n- Feedback curto para acerto: Parabéns! Você completou corretamente o código HTML.",
+    "successFeedback": "curto para acerto: Parabéns! Você completou corretamente o código HTML.",
+    "hints": [
+      "Analise o código com atenção."
+    ],
+    "explanation": "curta: O objetivo era completar o código HTML fornecido com as tags necessárias para estruturar um documento básico."
+  }
+]
