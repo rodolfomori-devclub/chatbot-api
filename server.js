@@ -20,12 +20,14 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama2-70b-4096';
 
 // Middleware de CORS
+app.use(cors());
 app.use(cors({
-  origin: '*', // Aceita qualquer origem durante desenvolvimento
+  origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(bodyParser.json());
+console.log("Testing", new Date().toDateString())
 
 // Sistema para armazenar conversas em memória
 const conversations = {};
