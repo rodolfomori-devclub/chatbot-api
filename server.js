@@ -26,8 +26,20 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(bodyParser.json());
-console.log("Testing", new Date().toDateString())
+app.use(bodyParser.json({ limit: '5mb' })); // Aumentado para suportar uploads de arquivos maiores
+
+// Create the src directory if it doesn't exist
+const srcDir = path.join(__dirname, 'src');
+const routesDir = path.join(srcDir, 'routes');
+
+// Ensure directories exist (for fresh installations)
+fs.mkdir(srcDir, { recursive: true })
+  .then(() => fs.mkdir(routesDir, { recursive: true }))
+  .catch(err => {
+    if (err.code !== 'EEXIST') {
+      console.error('Error creating directories:', err);
+    }
+  });
 
 // Sistema para armazenar conversas em memória
 const conversations = {};
@@ -205,6 +217,12 @@ const callGroqApi = async (messages, model = GROQ_MODEL) => {
   console.log("Resposta recebida da API Groq");
   return response.data.choices[0].message.content;
 };
+
+// Import custom routes
+const apiRoutes = require('./src/index');
+
+// Use API routes
+app.use('/api', apiRoutes);
 
 // Rota para iniciar uma nova conversa
 app.post('/api/start-conversation', (req, res) => {
