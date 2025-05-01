@@ -1,34 +1,60 @@
 const express = require('express');
+const axios = require('axios'); // Garantindo que axios seja importado globalmente
 const router = express.Router();
+
+// Definindo a mensagem do sistema globalmente para ser utilizada em todas as rotas
+const systemMessage = `Você é um assistente de programação prestativo para iniciantes.
+Sua tarefa é analisar código e fornecer feedback em linguagem simples que um iniciante possa entender.
+Evite jargão técnico ou explicações complexas.
+
+Você DEVE responder em formato Markdown e seguir EXATAMENTE esta estrutura:
+
+## Resumo
+Uma breve explicação do que o código faz ou tenta fazer.
+
+## Problemas Encontrados
+
+Para cada problema que você encontrar, siga este formato EXATO:
+
+### Problema {número}
+
+**Arquivo:** {nome_do_arquivo} (se disponível)
+
+**O que está acontecendo:**
+Explicação simples e amigável do problema, em linguagem que um iniciante entenda.
+
+**Trecho com problema:**
+\`\`\`{linguagem}
+// Copie aqui EXATAMENTE o trecho de código com o problema
+\`\`\`
+
+**Correção sugerida:**
+\`\`\`{linguagem}
+// Copie aqui o mesmo trecho, mas corrigido
+\`\`\`
+
+**Por que isto funciona:**
+Explicação simples e direta de por que a correção resolve o problema.
+
+## Dicas de Melhoria
+
+Liste 2-3 dicas simples para melhorar o código além das correções acima.
+
+## Próximos Passos
+
+Sugira 1-2 ações práticas e simples que o usuário pode tomar para continuar melhorando.
+
+Lembre-se que os usuários são completos iniciantes, então use analogias e explicações simples.`;
 
 // Function to call LLM for code analysis
 const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel) => {
-  const axios = require('axios');
-  
-  // Criar mensagem do sistema para o LLM responder de forma simples e amigável para iniciantes
-  const systemMessage = `Você é um assistente de programação prestativo para iniciantes.
-  Sua tarefa é analisar código e fornecer feedback em linguagem simples que um iniciante possa entender.
-  Evite jargão técnico ou explicações complexas.
-  Foque em:
-  1. Erros comuns ou bugs no código
-  2. Explicações simples do que cada parte do código faz
-  3. Sugestões de melhoria em um tom encorajador e de apoio
-  4. Exemplos práticos quando relevante
-  
-  Sempre formate sua resposta com:
-  - Uma seção "Resumo" explicando brevemente o que o código faz ou tenta fazer
-  - Uma seção "Feedback" com pontos numerados sobre problemas ou melhorias
-  - Uma seção "Próximos Passos" com 1-2 ações simples que o usuário pode tomar
-  
-  Lembre-se que os usuários são completos iniciantes, então use analogias e explicações simples.`;
-
-  // Preparar mensagens para a chamada da API
-  const messages = [
-    { role: "system", content: systemMessage },
-    { role: "user", content: `Por favor, analise este código e forneça feedback amigável para iniciantes:\n\n${code}` }
-  ];
-
   try {
+    // Preparar mensagens para a chamada da API
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: `Por favor, analise este código e forneça feedback amigável para iniciantes:\n\n${code}` }
+    ];
+
     let response;
     
     // Call appropriate API based on provider
@@ -74,8 +100,36 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel) => {
     }
   } catch (error) {
     console.error('Error analyzing code with LLM:', error);
-    throw new Error('Failed to analyze code. Please try again later.');
+    
+    // Melhor detalhamento de erros
+    if (error.response) {
+      // Erro da API
+      console.error('API Error:', error.response.status, error.response.data);
+      throw new Error(`API Error (${error.response.status}): ${error.response.data.error || 'Unknown API error'}`);
+    } else if (error.request) {
+      // Erro de rede
+      console.error('Network Error:', error.message);
+      throw new Error(`Network Error: Unable to reach the LLM service. Please check your connection.`);
+    } else {
+      // Outros erros
+      throw new Error(`Error analyzing code: ${error.message}`);
+    }
   }
+};
+
+// Função auxiliar para verificar configurações da API
+const checkApiConfig = () => {
+  const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
+  const apiKey = LLM_PROVIDER === 'groq' 
+    ? process.env.GROQ_API_KEY 
+    : process.env.OPENAI_API_KEY;
+    
+  if (!apiKey) {
+    console.error(`Missing API key for provider: ${LLM_PROVIDER}`);
+    return false;
+  }
+  
+  return true;
 };
 
 // Route for analyzing code snippet
@@ -87,6 +141,14 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ 
         error: "Código vazio", 
         message: "Por favor, forneça algum código para análise." 
+      });
+    }
+    
+    // Verificar configuração da API
+    if (!checkApiConfig()) {
+      return res.status(500).json({
+        error: "Configuração inválida",
+        message: "Configuração da API de análise está incompleta. Por favor, contate o suporte."
       });
     }
     
@@ -114,7 +176,7 @@ router.post('/analyze', async (req, res) => {
     console.error('Error in code analysis route:', error);
     res.status(500).json({ 
       error: "Erro na análise", 
-      message: "Não foi possível analisar o código no momento. Por favor, tente novamente mais tarde." 
+      message: error.message || "Não foi possível analisar o código no momento. Por favor, tente novamente mais tarde." 
     });
   }
 });
@@ -122,12 +184,20 @@ router.post('/analyze', async (req, res) => {
 // Route for analyzing uploaded file
 router.post('/analyze-file', async (req, res) => {
   try {
-    const { fileContent, fileName } = req.body;
+    const { fileContent, fileName, fileType } = req.body;
     
     if (!fileContent || fileContent.trim() === '') {
       return res.status(400).json({ 
         error: "Arquivo vazio", 
         message: "O arquivo enviado está vazio ou não pôde ser lido." 
+      });
+    }
+    
+    // Verificar configuração da API
+    if (!checkApiConfig()) {
+      return res.status(500).json({
+        error: "Configuração inválida",
+        message: "Configuração da API de análise está incompleta. Por favor, contate o suporte."
       });
     }
     
@@ -142,10 +212,11 @@ router.post('/analyze-file', async (req, res) => {
     const apiKey = LLM_PROVIDER === 'groq' ? GROQ_API_KEY : OPENAI_API_KEY;
     const model = LLM_PROVIDER === 'groq' ? GROQ_MODEL : OPENAI_MODEL;
     
-    // Create a message that includes the file name for context
-    const codeWithContext = `Arquivo: ${fileName || 'Sem nome'}\n\n${fileContent}`;
+    // Prepare specific content with file info
+    const fileExtensionInfo = fileType ? ` (tipo: ${fileType})` : '';
+    const codeWithContext = `Arquivo: "${fileName || 'sem_nome'}"${fileExtensionInfo}\n\n${fileContent}`;
     
-    // Analyze the code
+    // Use the common function to analyze code
     const analysis = await analyzeCodeWithLLM(codeWithContext, LLM_PROVIDER, apiKey, model);
     
     // Return the analysis
@@ -158,7 +229,7 @@ router.post('/analyze-file', async (req, res) => {
     console.error('Error in file analysis route:', error);
     res.status(500).json({ 
       error: "Erro na análise", 
-      message: "Não foi possível analisar o arquivo no momento. Por favor, tente novamente mais tarde." 
+      message: error.message || "Não foi possível analisar o arquivo no momento. Por favor, tente novamente mais tarde." 
     });
   }
 });
