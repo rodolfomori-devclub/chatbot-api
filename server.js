@@ -19,14 +19,21 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama2-70b-4096';
 
+// Import i18n middleware and services
+const { i18nMiddleware, sendI18nError, sendI18nSuccess } = require('./middleware/i18n');
+const i18nService = require('./services/i18nService');
+
 // Middleware de CORS
 app.use(cors());
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Language'],
 }));
 app.use(bodyParser.json({ limit: '5mb' })); // Aumentado para suportar uploads de arquivos maiores
+
+// Apply i18n middleware to all API routes
+app.use('/api', i18nMiddleware);
 
 // Create the src directory if it doesn't exist
 const srcDir = path.join(__dirname, 'src');
@@ -46,40 +53,6 @@ const conversations = {};
 
 // Caminho para o arquivo de desafios pré-gerados
 const CHALLENGES_FILE = path.join(__dirname, 'challenges.json');
-
-// Motivational texts array - textos motivacionais para exibir quando o usuário completa desafios
-const motivationalTexts = [
-  "Incrível progresso! Você está dominando os conceitos fundamentais de programação. Continue assim!",
-  "Cada desafio que você completa é um passo em direção ao seu objetivo como programador. Não desista!",
-  "Você está construindo sua base de conhecimento a cada desafio. O caminho para se tornar programador é exatamente assim!",
-  "Seu empenho está dando resultados! Lembre-se que todo programador experiente já esteve onde você está agora.",
-  "Persistência é a chave para o sucesso na programação. E você está demonstrando isso!",
-  "Você já aprendeu tanto! Imagine onde estará daqui a alguns meses se continuar nesse ritmo.",
-  "Ótimo trabalho! Sua jornada na programação está apenas começando, e você já está brilhando!",
-  "A persistência é o que transforma a dificuldade em conquista. Continue programando!",
-  "Cada linha de código que você escreve, cada problema que resolve, está construindo seu futuro como programador.",
-  "Dez desafios completos! Você está desenvolvendo o mindset de um programador de verdade.",
-  "Sua dedicação está rendendo frutos! Continue aprendendo, continue codando.",
-  "Os melhores programadores são aqueles que não desistem quando encontram dificuldades. Você está no caminho certo!",
-  "Parabéns pelo seu progresso! Lembre-se: a programação é uma maratona, não uma corrida de velocidade.",
-  "Você está cultivando uma habilidade que mudará seu futuro. Continue avançando!",
-  "Com cada desafio, você expande sua mente e se aproxima de se tornar o programador que deseja ser.",
-  "Sensacional! Você está demonstrando as qualidades essenciais de um programador: persistência e vontade de aprender.",
-  "Continue resolvendo problemas, um após o outro. É assim que se constrói uma carreira em programação!",
-  "Sua jornada de aprendizado está progredindo maravilhosamente! Não se esqueça de olhar para trás e ver o quanto já avançou.",
-  "Você está construindo sua confiança a cada desafio. Esta é uma habilidade tão importante quanto o conhecimento técnico!",
-  "Cada desafio completado é uma vitória. Continue somando estas vitórias em sua jornada como programador!",
-  "A programação é feita de pequenas vitórias diárias. Você está acumulando muitas delas!",
-  "Sua determinação é inspiradora! Continue praticando, e você verá como a programação se tornará natural.",
-  "O segredo do sucesso em programação é a prática constante. Você está no caminho certo!",
-  "Dez novos desafios concluídos! Seu cérebro está formando novas conexões a cada problema que você resolve.",
-  "Seu progresso é a prova de que você tem o que é preciso para se tornar um programador de sucesso.",
-  "A jornada do programador é feita de desafios. E você está mostrando que sabe como superá-los!",
-  "Continue codando, continue aprendendo. Seu futuro como programador está sendo construído agora!",
-  "Está vendo como você consegue? Esse é o poder da persistência que todo bom programador precisa ter.",
-  "Mais dez desafios conquistados! Você está desenvolvendo um superpoder: resolver problemas com código!",
-  "Você está transformando dificuldades em conhecimento. Esta é a essência da programação!"
-];
 
 // Função para carregar os desafios pré-gerados
 let allChallenges = [];
@@ -225,32 +198,26 @@ const apiRoutes = require('./src/index');
 app.use('/api', apiRoutes);
 
 // Rota para iniciar uma nova conversa
-app.post('/api/start-conversation', (req, res) => {
-  const conversationId = generateConversationId();
-  conversations[conversationId] = {
-    messages: [
-      { 
-        role: "system", 
-        content: `Você é a Giovanna, uma assistente educacional especializada em programação que ajuda iniciantes. 
-        
-        Você está ajudando alunos da "Missão Programação do Zero", pessoas que estão fazendo transição de carreira e sabem pouco ou quase nada de programação.
-        
-        Suas características principais:
-        1. Use linguagem simples e evite jargões técnicos
-        2. Explique conceitos com analogias do dia a dia
-        3. Forneça exemplos práticos e concretos
-        4. Explique código linha por linha quando necessário
-        5. Incentive boas práticas de programação
-        6. Seja paciente e encorajadora 
-        7. Use um tom amigável e acessível
-        8. Quando mostrar código, adicione comentários explicativos
-        9. Foque em HTML, CSS e JavaScript básico
-        
-        Assinatura: Sempre termine suas mensagens assinando como "Giovanna 👩‍💻"`
-      }
-    ]
-  };
-  res.json({ conversationId });
+app.post('/api/start-conversation', async (req, res) => {
+  try {
+    const conversationId = generateConversationId();
+    const systemPrompt = await req.t.getSystemPrompt();
+    
+    conversations[conversationId] = {
+      messages: [
+        { 
+          role: "system", 
+          content: systemPrompt
+        }
+      ],
+      language: req.language
+    };
+    
+    return sendI18nSuccess(res, req, { conversationId });
+  } catch (error) {
+    console.error('Error starting conversation:', error);
+    return sendI18nError(res, req, 500, 'errors.serverError');
+  }
 });
 
 // Rota para chat - versão simples sem streaming
@@ -260,7 +227,7 @@ app.post('/api/chat', async (req, res) => {
     
     // Verificação básica da mensagem
     if (!message) {
-      return res.status(400).json({ error: "Mensagem inválida", details: "A mensagem não pode ser vazia" });
+      return sendI18nError(res, req, 400, 'errors.invalidMessage', 'errors.emptyMessage');
     }
     
     // Criar ou recuperar conversa
@@ -269,15 +236,15 @@ app.post('/api/chat', async (req, res) => {
       : generateConversationId();
     
     if (!conversations[currentConversationId]) {
+      const systemPrompt = await req.t.getSystemPrompt();
       conversations[currentConversationId] = {
         messages: [
           { 
             role: "system", 
-            content: `Você é a Giovanna, uma assistente educacional especializada em programação que ajuda iniciantes. 
-            Você está ajudando alunos da "Missão Programação do Zero". Use linguagem simples, evite jargões, forneça exemplos práticos, 
-            seja encorajadora e sempre termine suas mensagens assinando como "Giovanna 👩‍💻"`
+            content: systemPrompt
           }
-        ]
+        ],
+        language: req.language
       };
     }
     
@@ -310,10 +277,10 @@ app.post('/api/chat', async (req, res) => {
       }
       
       // Enviar resposta para o cliente
-      return res.json({
+      return sendI18nSuccess(res, req, {
         message: assistantMessage,
         conversationId: currentConversationId,
-        provider: LLM_PROVIDER // Enviar o provedor usado para referência
+        provider: LLM_PROVIDER
       });
       
     } catch (apiError) {
@@ -324,35 +291,31 @@ app.post('/api/chat', async (req, res) => {
         console.error("Dados:", apiError.response.data);
       }
       
-      // Respostas de fallback para casos comuns quando a API falha
-      const fallbackResponses = {
-        html: "HTML (HyperText Markup Language) é a linguagem padrão para criar páginas web. Ela usa tags como `<div>`, `<p>`, `<h1>` para estruturar o conteúdo.\n\nGiovanna 👩‍💻",
-        css: "CSS (Cascading Style Sheets) é a linguagem que usamos para estilizar páginas HTML. Ela controla cores, layouts, fontes e outros aspectos visuais.\n\nGiovanna 👩‍💻",
-        javascript: "JavaScript é uma linguagem de programação que permite adicionar interatividade às páginas web. Com ela, você pode responder a cliques, validar formulários e muito mais.\n\nGiovanna 👩‍💻",
-        default: "Desculpe, estou tendo dificuldades para me conectar aos servidores. Por favor, tente novamente em alguns instantes.\n\nGiovanna 👩‍💻"
-      };
-      
-      // Determinar resposta de fallback com base na mensagem
-      let fallbackMessage = fallbackResponses.default;
+      // Determine fallback response based on message content
+      let fallbackTopic = 'apiConnectionError';
       const messageLower = message.toLowerCase();
       
       if (messageLower.includes('html')) {
-        fallbackMessage = fallbackResponses.html;
+        fallbackTopic = 'html';
       } else if (messageLower.includes('css')) {
-        fallbackMessage = fallbackResponses.css;
+        fallbackTopic = 'css';
       } else if (messageLower.includes('javascript') || messageLower.includes('js')) {
-        fallbackMessage = fallbackResponses.javascript;
+        fallbackTopic = 'javascript';
       }
+      
+      const fallbackMessage = await req.t.getFallbackResponse(fallbackTopic);
+      const signature = await req.t.getSignature();
+      const fullFallbackMessage = `${fallbackMessage}\n\n${signature}`;
       
       // Adicionar resposta de fallback ao histórico
       conversations[currentConversationId].messages.push({
         role: 'assistant',
-        content: fallbackMessage
+        content: fullFallbackMessage
       });
       
       // Enviar resposta de fallback para o cliente
-      return res.json({
-        message: fallbackMessage,
+      return sendI18nSuccess(res, req, {
+        message: fullFallbackMessage,
         conversationId: currentConversationId,
         fallback: true,
         provider: LLM_PROVIDER
@@ -361,10 +324,7 @@ app.post('/api/chat', async (req, res) => {
     
   } catch (error) {
     console.error('Erro geral na API de chat:', error);
-    res.status(500).json({ 
-      error: "Erro interno do servidor", 
-      details: process.env.NODE_ENV === 'development' ? error.message : null 
-    });
+    return sendI18nError(res, req, 500, 'errors.serverError');
   }
 });
 
@@ -391,17 +351,17 @@ app.get('/api/challenges', (req, res) => {
     filteredChallenges = shuffled.slice(0, 50);
   }
   
-  res.json(filteredChallenges);
+  return res.json(filteredChallenges);
 });
 
 // Rota para obter um desafio específico
 app.get('/api/challenge/:id', (req, res) => {
-  const { id } = req.params;
-  
+    const { id } = req.params;
+    
   // Encontrar o desafio pelo ID
   const challenge = allChallenges.find(c => c.id === id);
-  
-  if (!challenge) {
+    
+    if (!challenge) {
     return res.status(404).json({ error: "Desafio não encontrado" });
   }
   
@@ -410,8 +370,8 @@ app.get('/api/challenge/:id', (req, res) => {
 
 // Rota para obter um desafio aleatório
 app.get('/api/random-challenge', (req, res) => {
-  const { topic, type } = req.query;
-  
+    const { topic, type } = req.query;
+    
   let filteredChallenges = [...allChallenges];
   
   // Filtrar por tópico se fornecido
@@ -422,8 +382,8 @@ app.get('/api/random-challenge', (req, res) => {
   // Filtrar por tipo se fornecido
   if (type) {
     filteredChallenges = filteredChallenges.filter(challenge => challenge.type === type);
-  }
-  
+    }
+    
   if (filteredChallenges.length === 0) {
     return res.status(404).json({ error: "Nenhum desafio encontrado com os critérios fornecidos" });
   }
@@ -545,28 +505,41 @@ app.get('/api/challenge-solution/:id', (req, res) => {
 });
 
 // Rota para obter um texto motivacional aleatório
-app.get('/api/motivational-text', (req, res) => {
+app.get('/api/motivational-text', async (req, res) => {
   try {
-    const text = getRandomMotivationalText();
-    res.json({ text });
+    const text = await req.t.getRandomMotivationalText();
+    return sendI18nSuccess(res, req, { text });
   } catch (error) {
     console.error('Erro ao obter texto motivacional:', error);
-    res.status(500).json({ error: "Erro ao obter texto motivacional" });
+    return sendI18nError(res, req, 500, 'errors.serverError');
   }
 });
 
 // Rota para obter informações do LLM atual
-app.get('/api/llm-info', (req, res) => {
+app.get('/api/llm-info', async (req, res) => {
   try {
     const info = {
       provider: LLM_PROVIDER,
-      model: LLM_PROVIDER === 'groq' ? GROQ_MODEL : OPENAI_MODEL
+      model: LLM_PROVIDER === 'groq' ? GROQ_MODEL : OPENAI_MODEL,
+      language: req.language,
+      supportedLanguages: i18nService.getSupportedLanguages()
     };
-    res.json(info);
+    return sendI18nSuccess(res, req, info);
   } catch (error) {
     console.error('Erro ao obter informações do LLM:', error);
-    res.status(500).json({ error: "Erro ao obter informações do LLM" });
+    return sendI18nError(res, req, 500, 'errors.serverError');
   }
+});
+
+// Route to get i18n information - Enhanced with challenge stats
+app.get('/api/i18n-info', (req, res) => {
+  const stats = i18nService.getCacheStats();
+  res.json({
+    currentLanguage: req.language,
+    supportedLanguages: i18nService.getSupportedLanguages(),
+    defaultLanguage: 'pt',
+    cacheStats: stats
+  });
 });
 
 app.get('/health', (req, res) => {
@@ -574,7 +547,7 @@ app.get('/health', (req, res) => {
 });
 
 // Iniciar o servidor
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`Modo: Otimizado para educação`);
   console.log(`Provedor de LLM: ${LLM_PROVIDER}`);
@@ -586,5 +559,5 @@ app.listen(PORT, () => {
   }
   
   console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Desafios: ${allChallenges.length} desafios carregados`);
+  console.log(`Idiomas suportados: ${i18nService.getSupportedLanguages().join(', ')}`);
 });
