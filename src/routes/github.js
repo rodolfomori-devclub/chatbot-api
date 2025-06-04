@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
+const { sendI18nError, sendI18nSuccess } = require('../../middleware/i18n');
 
 // GitHub OAuth settings
 const GITHUB_CLIENT_ID = 'Ov23li3INAAPPidJ2X7X';
@@ -12,10 +13,7 @@ router.post('/exchange-code', async (req, res) => {
     const { code } = req.body;
     
     if (!code) {
-      return res.status(400).json({ 
-        error: 'Código ausente', 
-        message: 'É necessário fornecer um código de autorização do GitHub.' 
-      });
+      return sendI18nError(res, req, 400, 'errors.missingCode', 'validation.authorizationCodeRequired');
     }
     
     // Exchange the code for an access token
@@ -34,14 +32,11 @@ router.post('/exchange-code', async (req, res) => {
     );
     
     // Return the access token to the client
-    res.json(response.data);
+    return sendI18nSuccess(res, req, response.data);
     
   } catch (error) {
     console.error('Error exchanging GitHub code for token:', error);
-    res.status(500).json({ 
-      error: 'Erro de autenticação',
-      message: 'Não foi possível completar a autenticação com o GitHub.'
-    });
+    return sendI18nError(res, req, 500, 'errors.authenticationError', 'github.authenticationFailed');
   }
 });
 
@@ -51,10 +46,7 @@ router.post('/analyze-file', async (req, res) => {
     const { repo, branch, path, token } = req.body;
     
     if (!repo || !branch || !path || !token) {
-      return res.status(400).json({ 
-        error: 'Parâmetros insuficientes', 
-        message: 'Repositório, branch, caminho do arquivo e token são obrigatórios.' 
-      });
+      return sendI18nError(res, req, 400, 'errors.missingParameters', 'validation.repoParametersRequired');
     }
     
     // Get the file content from GitHub
@@ -84,13 +76,17 @@ router.post('/analyze-file', async (req, res) => {
     const { analyzeCodeWithLLM } = require('./codeCheck');
     
     // Create a context string with repository info
-    const codeWithContext = `Repositório: ${repo}\nBranch: ${branch}\nArquivo: ${path}\n\n${fileContent}`;
+    const contextPrefix = req.language === 'es' 
+      ? `Repositorio: ${repo}\nRama: ${branch}\nArchivo: ${path}\n\n`
+      : `Repositório: ${repo}\nBranch: ${branch}\nArquivo: ${path}\n\n`;
+    
+    const codeWithContext = contextPrefix + fileContent;
     
     // Analyze the code
-    const analysis = await analyzeCodeWithLLM(codeWithContext, LLM_PROVIDER, apiKey, model);
+    const analysis = await analyzeCodeWithLLM(codeWithContext, LLM_PROVIDER, apiKey, model, req.language, req.t);
     
     // Return the analysis
-    res.json({
+    return sendI18nSuccess(res, req, {
       analysis,
       provider: LLM_PROVIDER,
       file: {
@@ -98,14 +94,22 @@ router.post('/analyze-file', async (req, res) => {
         branch,
         path
       }
-    });
+    }, 'success.fileAnalyzed');
     
   } catch (error) {
     console.error('Error analyzing GitHub file:', error);
-    res.status(500).json({ 
-      error: 'Erro na análise', 
-      message: 'Não foi possível analisar o arquivo do GitHub.' 
-    });
+    
+    // Handle specific GitHub API errors
+    if (error.response) {
+      const status = error.response.status;
+      if (status === 404) {
+        return sendI18nError(res, req, 404, 'errors.challengeNotFound', 'github.repositoryAccessFailed');
+      } else if (status === 401 || status === 403) {
+        return sendI18nError(res, req, status, 'errors.authenticationError', 'github.authenticationFailed');
+      }
+    }
+    
+    return sendI18nError(res, req, 500, 'errors.analysisError', 'github.fileAnalysisFailed');
   }
 });
 

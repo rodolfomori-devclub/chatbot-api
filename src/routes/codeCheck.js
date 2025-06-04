@@ -1,58 +1,19 @@
 const express = require('express');
 const axios = require('axios'); // Garantindo que axios seja importado globalmente
 const router = express.Router();
+const { sendI18nError, sendI18nSuccess } = require('../../middleware/i18n');
 
-// Definindo a mensagem do sistema globalmente para ser utilizada em todas as rotas
-const systemMessage = `Você é um assistente de programação prestativo para iniciantes.
-Sua tarefa é analisar código e fornecer feedback em linguagem simples que um iniciante possa entender.
-Evite jargão técnico ou explicações complexas.
-
-Você DEVE responder em formato Markdown e seguir EXATAMENTE esta estrutura:
-
-## Resumo
-Uma breve explicação do que o código faz ou tenta fazer.
-
-## Problemas Encontrados
-
-Para cada problema que você encontrar, siga este formato EXATO:
-
-### Problema {número}
-
-**Arquivo:** {nome_do_arquivo} (se disponível)
-
-**O que está acontecendo:**
-Explicação simples e amigável do problema, em linguagem que um iniciante entenda.
-
-**Trecho com problema:**
-\`\`\`{linguagem}
-// Copie aqui EXATAMENTE o trecho de código com o problema
-\`\`\`
-
-**Correção sugerida:**
-\`\`\`{linguagem}
-// Copie aqui o mesmo trecho, mas corrigido
-\`\`\`
-
-**Por que isto funciona:**
-Explicação simples e direta de por que a correção resolve o problema.
-
-## Dicas de Melhoria
-
-Liste 2-3 dicas simples para melhorar o código além das correções acima.
-
-## Próximos Passos
-
-Sugira 1-2 ações práticas e simples que o usuário pode tomar para continuar melhorando.
-
-Lembre-se que os usuários são completos iniciantes, então use analogias e explicações simples.`;
-
-// Function to call LLM for code analysis
-const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel) => {
+// Function to call LLM for code analysis with i18n support
+const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, language, t) => {
   try {
-    // Preparar mensagens para a chamada da API
+    // Get localized system message and instruction
+    const systemMessage = await t.getCodeAnalysisPrompt();
+    const instruction = await t.getCodeAnalysisInstruction();
+    
+    // Prepare messages for the API call
     const messages = [
       { role: "system", content: systemMessage },
-      { role: "user", content: `Por favor, analise este código e forneça feedback amigável para iniciantes:\n\n${code}` }
+      { role: "user", content: instruction + code }
     ];
 
     let response;
@@ -101,23 +62,26 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel) => {
   } catch (error) {
     console.error('Error analyzing code with LLM:', error);
     
-    // Melhor detalhamento de erros
+    // Better error handling with i18n
     if (error.response) {
-      // Erro da API
+      // API Error
       console.error('API Error:', error.response.status, error.response.data);
-      throw new Error(`API Error (${error.response.status}): ${error.response.data.error || 'Unknown API error'}`);
+      const errorMsg = await t.getMessage('errors.apiError', 'API Error');
+      throw new Error(`${errorMsg} (${error.response.status}): ${error.response.data.error || 'Unknown API error'}`);
     } else if (error.request) {
-      // Erro de rede
+      // Network Error
       console.error('Network Error:', error.message);
-      throw new Error(`Network Error: Unable to reach the LLM service. Please check your connection.`);
+      const errorMsg = await t.getMessage('errors.networkError', 'Network Error');
+      throw new Error(`${errorMsg}: Unable to reach the LLM service. Please check your connection.`);
     } else {
-      // Outros erros
-      throw new Error(`Error analyzing code: ${error.message}`);
+      // Other errors
+      const errorMsg = await t.getMessage('errors.analysisError', 'Error analyzing code');
+      throw new Error(`${errorMsg}: ${error.message}`);
     }
   }
 };
 
-// Função auxiliar para verificar configurações da API
+// Helper function to check API configuration
 const checkApiConfig = () => {
   const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
   const apiKey = LLM_PROVIDER === 'groq' 
@@ -138,18 +102,12 @@ router.post('/analyze', async (req, res) => {
     const { code } = req.body;
     
     if (!code || code.trim() === '') {
-      return res.status(400).json({ 
-        error: "Código vazio", 
-        message: "Por favor, forneça algum código para análise." 
-      });
+      return sendI18nError(res, req, 400, 'errors.codeEmpty', 'validation.provideCode');
     }
     
-    // Verificar configuração da API
+    // Check API configuration
     if (!checkApiConfig()) {
-      return res.status(500).json({
-        error: "Configuração inválida",
-        message: "Configuração da API de análise está incompleta. Por favor, contate o suporte."
-      });
+      return sendI18nError(res, req, 500, 'errors.configurationError', 'validation.apiConfigIncomplete');
     }
     
     // Get LLM configuration from the main server
@@ -164,19 +122,18 @@ router.post('/analyze', async (req, res) => {
     const model = LLM_PROVIDER === 'groq' ? GROQ_MODEL : OPENAI_MODEL;
     
     // Analyze the code
-    const analysis = await analyzeCodeWithLLM(code, LLM_PROVIDER, apiKey, model);
+    const analysis = await analyzeCodeWithLLM(code, LLM_PROVIDER, apiKey, model, req.language, req.t);
     
     // Return the analysis
-    res.json({ 
+    return sendI18nSuccess(res, req, { 
       analysis,
       provider: LLM_PROVIDER
-    });
+    }, 'success.codeAnalyzed');
     
   } catch (error) {
     console.error('Error in code analysis route:', error);
-    res.status(500).json({ 
-      error: "Erro na análise", 
-      message: error.message || "Não foi possível analisar o código no momento. Por favor, tente novamente mais tarde." 
+    return sendI18nError(res, req, 500, 'errors.analysisError', null, {
+      message: error.message || await req.t.getMessage('validation.provideCode', 'Could not analyze the code at the moment. Please try again later.')
     });
   }
 });
@@ -187,21 +144,15 @@ router.post('/analyze-file', async (req, res) => {
     const { fileContent, fileName, fileType } = req.body;
     
     if (!fileContent || fileContent.trim() === '') {
-      return res.status(400).json({ 
-        error: "Arquivo vazio", 
-        message: "O arquivo enviado está vazio ou não pôde ser lido." 
-      });
+      return sendI18nError(res, req, 400, 'errors.fileEmpty', 'validation.provideValidFile');
     }
     
-    // Verificar configuração da API
+    // Check API configuration
     if (!checkApiConfig()) {
-      return res.status(500).json({
-        error: "Configuração inválida",
-        message: "Configuração da API de análise está incompleta. Por favor, contate o suporte."
-      });
+      return sendI18nError(res, req, 500, 'errors.configurationError', 'validation.apiConfigIncomplete');
     }
     
-    // Get LLM configuration from the main server
+    // Get LLM configuration
     const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
@@ -212,26 +163,42 @@ router.post('/analyze-file', async (req, res) => {
     const apiKey = LLM_PROVIDER === 'groq' ? GROQ_API_KEY : OPENAI_API_KEY;
     const model = LLM_PROVIDER === 'groq' ? GROQ_MODEL : OPENAI_MODEL;
     
-    // Prepare specific content with file info
-    const fileExtensionInfo = fileType ? ` (tipo: ${fileType})` : '';
-    const codeWithContext = `Arquivo: "${fileName || 'sem_nome'}"${fileExtensionInfo}\n\n${fileContent}`;
+    // Create enhanced context for file analysis
+    const fileContext = fileName 
+      ? `File: ${fileName}${fileType ? ` (${fileType})` : ''}\n\n${fileContent}`
+      : fileContent;
     
-    // Use the common function to analyze code
-    const analysis = await analyzeCodeWithLLM(codeWithContext, LLM_PROVIDER, apiKey, model);
+    // Analyze the code
+    const analysis = await analyzeCodeWithLLM(fileContext, LLM_PROVIDER, apiKey, model, req.language, req.t);
     
     // Return the analysis
-    res.json({ 
+    return sendI18nSuccess(res, req, {
       analysis,
-      provider: LLM_PROVIDER
-    });
+      provider: LLM_PROVIDER,
+      file: {
+        name: fileName,
+        type: fileType
+      }
+    }, 'success.fileAnalyzed');
     
   } catch (error) {
     console.error('Error in file analysis route:', error);
-    res.status(500).json({ 
-      error: "Erro na análise", 
-      message: error.message || "Não foi possível analisar o arquivo no momento. Por favor, tente novamente mais tarde." 
+    return sendI18nError(res, req, 500, 'errors.analysisError', null, {
+      message: error.message || await req.t.getMessage('validation.provideValidFile', 'Could not analyze the file at the moment. Please try again later.')
     });
   }
+});
+
+// Route for getting supported languages
+router.get('/languages', (req, res) => {
+  const i18nService = require('../../services/i18nService');
+  
+  res.json({
+    supportedLanguages: i18nService.getSupportedLanguages(),
+    defaultLanguage: 'pt',
+    currentLanguage: req.language,
+    cacheStats: i18nService.getCacheStats()
+  });
 });
 
 // This route is a placeholder for future GitHub integration

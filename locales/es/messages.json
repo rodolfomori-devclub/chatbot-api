@@ -1,0 +1,45 @@
+{
+  "errors": {
+    "invalidMessage": "Mensaje inválido",
+    "emptyMessage": "El mensaje no puede estar vacío",
+    "challengeNotFound": "Desafío no encontrado",
+    "serverError": "Error interno del servidor",
+    "apiError": "Error en la API",
+    "networkError": "Error de red",
+    "configurationError": "Configuración inválida",
+    "authenticationError": "Error de autenticación",
+    "codeEmpty": "Código vacío",
+    "fileEmpty": "Archivo vacío",
+    "missingCode": "Código ausente",
+    "missingParameters": "Parámetros insuficientes",
+    "analysisError": "Error en el análisis"
+  },
+  "fallback": {
+    "apiConnectionError": "Disculpa, estoy teniendo dificultades para conectarme a los servidores. Por favor, intenta nuevamente en unos momentos.",
+    "html": "HTML (HyperText Markup Language) es el lenguaje estándar para crear páginas web. Usa etiquetas como `<div>`, `<p>`, `<h1>` para estructurar el contenido.",
+    "css": "CSS (Cascading Style Sheets) es el lenguaje que usamos para dar estilo a las páginas HTML. Controla colores, diseños, fuentes y otros aspectos visuales.",
+    "javascript": "JavaScript es un lenguaje de programación que permite añadir interactividad a las páginas web. Con él, puedes responder a clics, validar formularios y mucho más."
+  },
+  "success": {
+    "codeAnalyzed": "Código analizado con éxito",
+    "fileAnalyzed": "Archivo analizado con éxito"
+  },
+  "validation": {
+    "provideCode": "Por favor, proporciona algún código para análisis.",
+    "provideValidFile": "El archivo enviado está vacío o no se pudo leer.",
+    "apiConfigIncomplete": "La configuración de la API de análisis está incompleta. Por favor, contacta al soporte.",
+    "authorizationCodeRequired": "Es necesario proporcionar un código de autorización de GitHub.",
+    "repoParametersRequired": "Repositorio, rama, ruta del archivo y token son obligatorios."
+  },
+  "operations": {
+    "analyzingCode": "Analizando código...",
+    "connectingToGithub": "Conectando a GitHub...",
+    "fetchingFile": "Obteniendo archivo...",
+    "authenticatingGithub": "Autenticando con GitHub..."
+  },
+  "github": {
+    "authenticationFailed": "No fue posible completar la autenticación con GitHub.",
+    "fileAnalysisFailed": "No fue posible analizar el archivo de GitHub.",
+    "repositoryAccessFailed": "No fue posible acceder al repositorio."
+  }
+} 
