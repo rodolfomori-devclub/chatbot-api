@@ -126,9 +126,8 @@ const generateChallengeId = () => {
 };
 
 // Função para obter um texto motivacional aleatório
-const getRandomMotivationalText = () => {
-  const randomIndex = Math.floor(Math.random() * motivationalTexts.length);
-  return motivationalTexts[randomIndex];
+const getRandomMotivationalText = (language) => {
+  return i18nService.getRandomMotivationalText(language);
 };
 
 // Função para fazer chamada de API ao LLM selecionado
@@ -399,6 +398,7 @@ app.get('/api/random-challenge', (req, res) => {
 app.post('/api/check-challenge', (req, res) => {
   try {
     const { challengeId, userAnswer } = req.body;
+    const language = req.language;
     
     // Encontra o desafio pelo ID
     const challenge = allChallenges.find(c => c.id === challengeId);
@@ -414,7 +414,7 @@ app.post('/api/check-challenge', (req, res) => {
       return res.json({
         isCorrect,
         feedback: isCorrect ? challenge.successFeedback : challenge.failureFeedback,
-        motivationalText: isCorrect ? getRandomMotivationalText() : null
+        motivationalText: isCorrect ? getRandomMotivationalText(language) : null
       });
     }
     
@@ -431,7 +431,7 @@ app.post('/api/check-challenge', (req, res) => {
         isCorrect,
         feedback: isCorrect ? challenge.successFeedback : 
           `Sua resposta não está correta. Tente novamente! Dica: ${challenge.hints?.[0] || 'Reveja o enunciado com atenção.'}`,
-        motivationalText: isCorrect ? getRandomMotivationalText() : null
+        motivationalText: isCorrect ? getRandomMotivationalText(language) : null
       });
     }
     
