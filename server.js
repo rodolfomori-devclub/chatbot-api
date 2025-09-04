@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3001;
 // Configurações de API
 const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5o-nano';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama2-70b-4096';
 

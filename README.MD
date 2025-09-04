@@ -22,7 +22,8 @@ Um chatbot educacional desenvolvido para ajudar alunos da Missão Programação 
 ### Backend
 - Node.js
 - Express
-- OpenAI API (GPT-3.5 Turbo) para processamento de linguagem natural
+- OpenAI API (GPT-5 Nano) para processamento de linguagem natural
+- Groq API (alternativa) para processamento de linguagem natural
 - Arquitetura flexível para substituição da IA
 
 ## Pré-requisitos
@@ -30,6 +31,7 @@ Um chatbot educacional desenvolvido para ajudar alunos da Missão Programação 
 - Node.js 18.x ou superior
 - NPM ou Yarn
 - Chave de API da OpenAI (você pode obtê-la em [platform.openai.com](https://platform.openai.com))
+- Ou chave de API da Groq (alternativa, você pode obtê-la em [console.groq.com](https://console.groq.com))
 
 ## Configuração e Execução
 
@@ -44,17 +46,25 @@ cd backend
 npm install
 ```
 
-3. Configure as variáveis de ambiente copiando o arquivo `.env.example` para `.env` e adicionando sua chave de API da OpenAI:
+3. Configure as variáveis de ambiente copiando o arquivo `env.example` para `.env` e adicionando sua chave de API:
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
 4. Edite o arquivo `.env` e adicione sua chave de API:
 ```
 PORT=3001
+LLM_PROVIDER=openai
 OPENAI_API_KEY=sua_chave_api_aqui
-OPENAI_MODEL=gpt-3.5-turbo
+OPENAI_MODEL=gpt-5o-nano
 NODE_ENV=development
+```
+
+**Nota**: Você pode escolher entre OpenAI (GPT-5 Nano) ou Groq como provedor de IA. Para usar Groq, configure:
+```
+LLM_PROVIDER=groq
+GROQ_API_KEY=sua_chave_groq_aqui
+GROQ_MODEL=llama2-70b-4096
 ```
 
 5. Inicie o servidor de desenvolvimento:
