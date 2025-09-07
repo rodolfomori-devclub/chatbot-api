@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3001;
 // Configurações de API
 const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5o-nano';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama2-70b-4096';
 
@@ -150,8 +150,6 @@ const callOpenAIApi = async (messages, model = OPENAI_MODEL) => {
     {
       model: model,
       messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
     },
     {
       headers: {
@@ -163,7 +161,16 @@ const callOpenAIApi = async (messages, model = OPENAI_MODEL) => {
   );
   
   console.log("Resposta recebida da API OpenAI");
-  return response.data.choices[0].message.content;
+  console.log("Response data:", JSON.stringify(response.data, null, 2));
+  
+  // Handle different response structures
+  if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+    return response.data.choices[0].message.content;
+  }
+  
+  // If the structure is different, log it and return a fallback
+  console.log("Unexpected response structure from OpenAI API");
+  return "I received your message but had trouble processing the response. Please try again.";
 };
 
 // Função para chamar a API da Groq
@@ -175,8 +182,6 @@ const callGroqApi = async (messages, model = GROQ_MODEL) => {
     {
       model: model,
       messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
     },
     {
       headers: {
