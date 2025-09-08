@@ -45,8 +45,6 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, langua
         {
           model: llmModel,
           messages: messages,
-          temperature: 0.5, // More focused responses
-          max_tokens: 1000,
         },
         {
           headers: {
@@ -56,7 +54,7 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, langua
           timeout: 30000 // 30 seconds
         }
       );
-      
+      console.log('OpenAI response:', response.data.choices);
       return response.data.choices[0].message.content;
     }
   } catch (error) {
