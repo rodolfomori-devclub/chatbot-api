@@ -419,7 +419,7 @@ app.post('/api/check-challenge', (req, res) => {
       return res.json({
         isCorrect,
         feedback: isCorrect ? challenge.successFeedback : challenge.failureFeedback,
-        motivationalText: isCorrect ? getRandomMotivationalText() : null
+        motivationalText: isCorrect ? req.t.getRandomMotivationalText() : null
       });
     }
     
@@ -436,7 +436,7 @@ app.post('/api/check-challenge', (req, res) => {
         isCorrect,
         feedback: isCorrect ? challenge.successFeedback : 
           `Sua resposta não está correta. Tente novamente! Dica: ${challenge.hints?.[0] || 'Reveja o enunciado com atenção.'}`,
-        motivationalText: isCorrect ? getRandomMotivationalText() : null
+        motivationalText: isCorrect ? req.t.getRandomMotivationalText() : null
       });
     }
     

@@ -1,5 +1,6 @@
 const express = require('express');
-const axios = require('axios'); // Garantindo que axios seja importado globalmente
+const axios = require('axios'); // For Groq API calls
+const OpenAI = require('openai'); // Official OpenAI library
 const router = express.Router();
 const { sendI18nError, sendI18nSuccess } = require('../../middleware/i18n');
 
@@ -20,6 +21,7 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, langua
     
     // Call appropriate API based on provider
     if (llmProvider === 'groq') {
+      // Use axios for Groq API
       response = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         {
@@ -39,30 +41,33 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, langua
       
       return response.data.choices[0].message.content;
     } else {
-      // Default to OpenAI
-      response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: llmModel,
-          messages: messages,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${llmApiKey}`
-          },
-          timeout: 30000 // 30 seconds
-        }
-      );
-      console.log('OpenAI response:', response.data.choices);
-      return response.data.choices[0].message.content;
+      // Use official OpenAI library
+      const openai = new OpenAI({
+        apiKey: llmApiKey,
+      });
+      
+      const completion = await openai.chat.completions.create({
+        model: llmModel,
+        messages: messages,
+        temperature: 0.7, // Default temperature for better responses
+        max_completion_tokens: 1000,
+      });
+      
+      console.log('OpenAI response:', completion.choices);
+      return completion.choices[0].message.content;
     }
   } catch (error) {
     console.error('Error analyzing code with LLM:', error);
     
     // Better error handling with i18n
-    if (error.response) {
-      // API Error
+    // Handle OpenAI library errors
+    if (error.status) {
+      // OpenAI library error (has status property)
+      console.error('OpenAI API Error:', error.status, error.message);
+      const errorMsg = await t.getMessage('errors.apiError', 'API Error');
+      throw new Error(`${errorMsg} (${error.status}): ${error.message}`);
+    } else if (error.response) {
+      // Axios error (Groq API)
       console.error('API Error:', error.response.status, error.response.data);
       const errorMsg = await t.getMessage('errors.apiError', 'API Error');
       throw new Error(`${errorMsg} (${error.response.status}): ${error.response.data.error || 'Unknown API error'}`);
