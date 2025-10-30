@@ -49,7 +49,7 @@ const analyzeCodeWithLLM = async (code, llmProvider, llmApiKey, llmModel, langua
       const completion = await openai.chat.completions.create({
         model: llmModel,
         messages: messages,
-        temperature: 0.7, // Default temperature for better responses
+        temperature: 1, // Default temperature for better responses
         max_completion_tokens: 1000,
       });
       
