@@ -4,7 +4,7 @@
   "description": "Backend para chatbot educacional da Missão Programação do Zero usando OpenAI",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --watch server.js",
     "dev": "nodemon server.js"
   },
   "keywords": [
@@ -23,7 +23,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "openai": "^6.2.0"
+    "openai": "^4.67.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
