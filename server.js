@@ -176,7 +176,7 @@ const callOpenAIApi = async (messages, model = OPENAI_MODEL) => {
 // Função para chamar a API da Groq
 const callGroqApi = async (messages, model = GROQ_MODEL) => {
   console.log("Enviando requisição para API Groq...");
-  
+
   const response = await axios.post(
     'https://api.groq.com/openai/v1/chat/completions',
     {
@@ -191,9 +191,75 @@ const callGroqApi = async (messages, model = GROQ_MODEL) => {
       timeout: 30000 // 30 segundos
     }
   );
-  
+
   console.log("Resposta recebida da API Groq");
   return response.data.choices[0].message.content;
+};
+
+// Retorna um stream Node readable com os chunks da resposta do LLM (formato OpenAI SSE)
+const openLLMStream = async (messages) => {
+  const isGroq = LLM_PROVIDER === 'groq';
+  const url = isGroq
+    ? 'https://api.groq.com/openai/v1/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions';
+  const apiKey = isGroq ? GROQ_API_KEY : OPENAI_API_KEY;
+  const model = isGroq ? GROQ_MODEL : OPENAI_MODEL;
+
+  const response = await axios.post(
+    url,
+    { model, messages, stream: true },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      responseType: 'stream',
+      timeout: 60000,
+    }
+  );
+
+  return response.data;
+};
+
+// Consome o stream SSE da LLM e invoca callbacks a cada delta / no final
+const consumeLLMStream = (stream, { onDelta, onDone, onError }) => {
+  let buffer = '';
+  let finished = false;
+
+  const finish = (err) => {
+    if (finished) return;
+    finished = true;
+    if (err) onError?.(err);
+    else onDone?.();
+  };
+
+  stream.on('data', (chunk) => {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || !line.startsWith('data:')) continue;
+
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') {
+        finish();
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(payload);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) onDelta?.(delta);
+      } catch (err) {
+        console.error('Erro ao parsear chunk SSE:', err.message, payload);
+      }
+    }
+  });
+
+  stream.on('end', () => finish());
+  stream.on('error', (err) => finish(err));
 };
 
 // Import custom routes
@@ -330,6 +396,127 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Erro geral na API de chat:', error);
     return sendI18nError(res, req, 500, 'errors.serverError');
+  }
+});
+
+// Rota para chat com streaming via SSE
+app.post('/api/chat/stream', async (req, res) => {
+  const { message, conversationId = null } = req.body;
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const sendEvent = (payload) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  if (!message) {
+    sendEvent({ type: 'error', message: 'Mensagem vazia' });
+    return res.end();
+  }
+
+  const currentConversationId = conversationId && conversations[conversationId]
+    ? conversationId
+    : generateConversationId();
+
+  if (!conversations[currentConversationId]) {
+    const systemPrompt = await req.t.getSystemPrompt();
+    conversations[currentConversationId] = {
+      messages: [{ role: 'system', content: systemPrompt }],
+      language: req.language,
+    };
+  }
+
+  conversations[currentConversationId].messages.push({ role: 'user', content: message });
+
+  const limitedMessages = conversations[currentConversationId].messages.slice(-5);
+  let assembled = '';
+  let clientClosed = false;
+
+  // Heartbeat pra manter a conexão viva enquanto aguardamos a LLM
+  // (linhas iniciadas por ":" são comentários SSE — o parser do cliente ignora)
+  res.write(': connected\n\n');
+  const heartbeat = setInterval(() => {
+    if (!clientClosed) res.write(': ping\n\n');
+  }, 1000);
+  const stopHeartbeat = () => clearInterval(heartbeat);
+
+  req.on('close', () => {
+    clientClosed = true;
+    stopHeartbeat();
+  });
+
+  const finalize = ({ fallback = false } = {}) => {
+    stopHeartbeat();
+    conversations[currentConversationId].messages.push({
+      role: 'assistant',
+      content: assembled,
+    });
+
+    if (conversations[currentConversationId].messages.length > 10) {
+      const systemMessage = conversations[currentConversationId].messages[0];
+      conversations[currentConversationId].messages = [
+        systemMessage,
+        ...conversations[currentConversationId].messages.slice(-8),
+      ];
+    }
+
+    if (!clientClosed) {
+      sendEvent({ type: 'done', conversationId: currentConversationId, provider: LLM_PROVIDER, fallback });
+      res.end();
+    }
+  };
+
+  const handleFallback = async (apiError) => {
+    console.error(`Erro no stream da API ${LLM_PROVIDER}:`, apiError?.message || apiError);
+
+    const messageLower = message.toLowerCase();
+    let fallbackTopic = 'apiConnectionError';
+    if (messageLower.includes('html')) fallbackTopic = 'html';
+    else if (messageLower.includes('css')) fallbackTopic = 'css';
+    else if (messageLower.includes('javascript') || messageLower.includes('js')) fallbackTopic = 'javascript';
+
+    const fallbackMessage = await req.t.getFallbackResponse(fallbackTopic);
+    const signature = await req.t.getSignature();
+    const fullFallback = `${fallbackMessage}\n\n${signature}`;
+
+    assembled = fullFallback;
+    if (!clientClosed) sendEvent({ type: 'delta', content: fullFallback });
+    finalize({ fallback: true });
+  };
+
+  try {
+    console.log(`Stream: usando provedor de LLM: ${LLM_PROVIDER}`);
+    const stream = await openLLMStream(limitedMessages);
+
+    consumeLLMStream(stream, {
+      onDelta: (delta) => {
+        if (clientClosed) return;
+        assembled += delta;
+        sendEvent({ type: 'delta', content: delta });
+      },
+      onDone: () => {
+        if (assembled.length === 0) {
+          // Stream concluiu sem conteúdo — trata como erro
+          handleFallback(new Error('empty_stream'));
+          return;
+        }
+        finalize();
+      },
+      onError: (err) => {
+        if (assembled.length === 0) {
+          handleFallback(err);
+        } else {
+          // Já entregamos parte do texto — encerra com o que temos
+          finalize();
+        }
+      },
+    });
+  } catch (err) {
+    await handleFallback(err);
   }
 });
 
