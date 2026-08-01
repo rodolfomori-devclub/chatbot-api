@@ -456,11 +456,19 @@ app.listen(PORT, async () => {
     `Idiomas suportados: ${i18nService.getSupportedLanguages().join(", ")}`,
   );
 
-  // Health check on startup
-  const isHealthy = await openaiService.healthCheck();
-  if (isHealthy) {
-    console.log("✓ OpenAI API health check passed");
-  } else {
-    console.warn("⚠ OpenAI API health check failed - check your API key");
+  // Diagnóstico de boot: valida chave E acesso ao modelo de cada provedor.
+  const diagnostico = await openaiService.diagnose();
+  const quebrados = diagnostico.filter((d) => !d.ok);
+
+  if (quebrados.length === diagnostico.length) {
+    console.error(
+      "⚠️  NENHUM provedor de LLM utilizável — a Giovanna só vai responder o texto engessado.",
+    );
+  } else if (quebrados.length > 0) {
+    console.warn(
+      `⚠️  ${quebrados.length} provedor(es) indisponível(is): ${quebrados
+        .map((d) => `${d.provider}/${d.model}`)
+        .join(", ")}`,
+    );
   }
 });

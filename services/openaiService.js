@@ -418,6 +418,46 @@ class OpenAIService {
       return false;
     }
   }
+
+  /**
+   * Boot-time check: confirms each provider's key works AND that the configured
+   * model is actually reachable with it. A project-scoped key that lacks access
+   * to the configured model fails on every request while the key itself looks
+   * valid — without this, that shows up only as silent fallbacks in production.
+   * @returns {Promise<Array>} Per-provider diagnostics
+   */
+  async diagnose() {
+    return Promise.all(
+      this.providers.map(async (p) => {
+        try {
+          const list = await p.client.models.list();
+          const ids = (list?.data || []).map((m) => m.id);
+          const available = ids.length === 0 || ids.includes(p.model);
+
+          if (!available) {
+            console.warn(
+              `⚠️  ${p.label}: a chave é válida mas NÃO tem acesso ao modelo "${p.model}". ` +
+                `Todas as chamadas vão falhar e cair no próximo provedor.`,
+            );
+          } else {
+            console.log(`✓ ${p.label} (${p.model}) acessível`);
+          }
+
+          return { provider: p.name, model: p.model, ok: available };
+        } catch (error) {
+          console.warn(
+            `⚠️  ${p.label}: chave inválida ou sem acesso (${error.status || ""} ${error.message}).`,
+          );
+          return {
+            provider: p.name,
+            model: p.model,
+            ok: false,
+            error: error.message,
+          };
+        }
+      }),
+    );
+  }
 }
 
 // Export singleton instance
