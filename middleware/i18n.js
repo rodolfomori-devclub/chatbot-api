@@ -72,6 +72,10 @@ const i18nMiddleware = async (req, res, next) => {
         return i18nService.getSystemPrompt(language);
       },
       
+      getSpecialistPrompt: async (specialist) => {
+        return i18nService.getSpecialistPrompt(language, specialist);
+      },
+
       getCodeAnalysisPrompt: async () => {
         return i18nService.getCodeAnalysisPrompt(language);
       },
@@ -114,6 +118,7 @@ const i18nMiddleware = async (req, res, next) => {
     req.t = {
       getMessage: async (keyPath, defaultValue = '') => defaultValue,
       getSystemPrompt: async () => 'System prompt not available',
+      getSpecialistPrompt: async () => '',
       getCodeAnalysisPrompt: async () => 'Code analysis prompt not available',
       getCodeAnalysisInstruction: async () => 'Please analyze this code:\n\n',
       getSignature: async () => 'Giovanna 👩‍💻',

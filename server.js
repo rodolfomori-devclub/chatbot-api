@@ -36,10 +36,51 @@ app.use(
     ],
   }),
 );
-app.use(bodyParser.json({ limit: "5mb" })); // Aumentado para suportar uploads de arquivos maiores
+// 4 imagens de ~1,5MB + folga. Endpoint público e sem autenticação, então o
+// limite precisa ser o menor que atenda o caso legítimo.
+app.use(bodyParser.json({ limit: "7mb" }));
+
+// Rate limit simples em memória. Sem dependência nova de propósito: mexer no
+// package.json às vésperas da aula é risco desnecessário no deploy.
+const RATE_LIMIT_POR_MINUTO = Number(process.env.RATE_LIMITE_POR_MINUTO || 20);
+const acessos = new Map();
+
+const limitarTaxa = (req, res, next) => {
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
+    req.ip ||
+    "desconhecido";
+  const agora = Date.now();
+  const janela = agora - 60_000;
+  const recentes = (acessos.get(ip) || []).filter((t) => t > janela);
+
+  if (recentes.length >= RATE_LIMIT_POR_MINUTO) {
+    return res.status(429).json({
+      error: "Muitas mensagens em pouco tempo. Espere um pouquinho e tente de novo.",
+    });
+  }
+
+  recentes.push(agora);
+  acessos.set(ip, recentes);
+  next();
+};
+
+const limpezaAcessos = setInterval(() => {
+  const janela = Date.now() - 60_000;
+  for (const [ip, marcas] of acessos) {
+    const vivos = marcas.filter((t) => t > janela);
+    if (vivos.length === 0) acessos.delete(ip);
+    else acessos.set(ip, vivos);
+  }
+}, 60_000);
+limpezaAcessos.unref?.();
 
 // Apply i18n middleware to all API routes
 app.use("/api", i18nMiddleware);
+app.use(
+  ["/api/chat", "/api/chat/stream", "/api/start-conversation"],
+  limitarTaxa,
+);
 
 // Create the src directory if it doesn't exist
 const srcDir = path.join(__dirname, "src");
@@ -362,9 +403,12 @@ app.get("/api/motivational-text", async (req, res) => {
 // Rota para obter informações do LLM atual
 app.get("/api/llm-info", async (req, res) => {
   try {
+    const chain = openaiService.describe();
     const info = {
-      provider: "openai",
-      model: openaiService.getModel(),
+      provider: chain[0]?.provider || null,
+      model: chain[0]?.model || null,
+      vision: openaiService.canSeeImages(),
+      chain,
       language: req.language,
       supportedLanguages: i18nService.getSupportedLanguages(),
     };
@@ -391,10 +435,22 @@ app.get("/health", (req, res) => {
 });
 
 // Iniciar o servidor
+// Rede de segurança: numa aula ao vivo, derrubar o processo por uma promise
+// solta tira o chat de todos os alunos ao mesmo tempo.
+process.on("unhandledRejection", (motivo) => {
+  console.error("Rejeição não tratada (processo mantido de pé):", motivo);
+});
+
+process.on("uncaughtException", (erro) => {
+  console.error("Exceção não capturada (processo mantido de pé):", erro);
+});
+
 app.listen(PORT, async () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`Modo: Otimizado para educação`);
-  console.log(`API OpenAI: Ativa (${openaiService.getModel()})`);
+  console.log(
+    `Visão (imagens): ${openaiService.canSeeImages() ? "disponível" : "INDISPONÍVEL — nenhum modelo com visão configurado"}`,
+  );
   console.log(`Ambiente: ${process.env.NODE_ENV || "development"}`);
   console.log(
     `Idiomas suportados: ${i18nService.getSupportedLanguages().join(", ")}`,

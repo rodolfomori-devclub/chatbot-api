@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const openaiService = require("../../services/openaiService");
 const { sendI18nError, sendI18nSuccess } = require("../../middleware/i18n");
 
@@ -7,30 +8,178 @@ const router = express.Router();
 /** In-memory conversation store — maps conversationId → { messages, language } */
 const conversations = {};
 
-const generateConversationId = () =>
-  Math.random().toString(36).substring(2, 15) +
-  Math.random().toString(36).substring(2, 15);
+const HISTORY_TURNS = Number(process.env.HISTORY_TURNS || 8);
+const CONVERSA_TTL_MS = Number(process.env.CONVERSA_TTL_MIN || 30) * 60 * 1000;
+const MAX_CONVERSAS = Number(process.env.MAX_CONVERSAS || 5000);
+
+/** The conversationId is the only thing guarding a conversation's history,
+ *  which can now hold student screenshots — Math.random() is predictable. */
+const generateConversationId = () => crypto.randomBytes(24).toString("hex");
 
 /** Keep conversation history within a manageable window (system + last N turns) */
-const pruneHistory = (convo, keepTurns = 8) => {
+const pruneHistory = (convo, keepTurns = HISTORY_TURNS) => {
   if (convo.messages.length > keepTurns + 1) {
     const [system, ...rest] = convo.messages;
     convo.messages = [system, ...rest.slice(-keepTurns)];
   }
 };
 
+/** Messages actually sent to the LLM.
+ *  The previous `convo.messages.slice(-5)` took the last 5 entries of the whole
+ *  array — index 0 is the system prompt, so past 5 messages Giovanna silently
+ *  lost her persona mid-conversation. The system prompt is now always kept and
+ *  never counted against the window. */
+const buildMessagesForApi = (convo) => {
+  const [system, ...history] = convo.messages;
+  return [system, ...history.slice(-HISTORY_TURNS)];
+};
+
+/** Replace image payloads with a short marker once the turn is done.
+ *  An image only needs to reach the model on the turn it was sent; keeping the
+ *  base64 around re-uploads hundreds of KB (and ~1.100 vision tokens) on every
+ *  later turn and pins the memory until the conversation expires. */
+const dropImagesFromHistory = (convo) => {
+  convo.messages = convo.messages.map((msg) => {
+    if (!Array.isArray(msg.content)) return msg;
+
+    const texts = msg.content
+      .filter((p) => p.type === "text")
+      .map((p) => p.text);
+    const imageCount = msg.content.filter((p) => p.type === "image_url").length;
+    if (imageCount === 0) return { ...msg, content: texts.join("\n") };
+
+    const marker =
+      imageCount === 1
+        ? "[o aluno enviou uma imagem nesta mensagem]"
+        : `[o aluno enviou ${imageCount} imagens nesta mensagem]`;
+
+    return { ...msg, content: [...texts, marker].filter(Boolean).join("\n") };
+  });
+};
+
+/** Close out a turn: release image payloads, trim, stamp activity. */
+const finishTurn = (convo) => {
+  dropImagesFromHistory(convo);
+  pruneHistory(convo);
+  convo.lastActivity = Date.now();
+};
+
+/** The store lives in the process heap. During a live class with thousands of
+ *  students it only ever grew — with screenshots in there, that is an OOM that
+ *  takes the whole class's chat down. */
+const purgeConversations = () => {
+  const now = Date.now();
+  let removed = 0;
+
+  for (const [id, convo] of Object.entries(conversations)) {
+    if (now - (convo.lastActivity || 0) > CONVERSA_TTL_MS) {
+      delete conversations[id];
+      removed++;
+    }
+  }
+
+  const ids = Object.keys(conversations);
+  if (ids.length > MAX_CONVERSAS) {
+    ids
+      .sort(
+        (a, b) =>
+          (conversations[a].lastActivity || 0) -
+          (conversations[b].lastActivity || 0),
+      )
+      .slice(0, ids.length - MAX_CONVERSAS)
+      .forEach((id) => {
+        delete conversations[id];
+        removed++;
+      });
+  }
+
+  if (removed > 0) {
+    console.log(
+      `🧹 Purged ${removed} conversations, ${Object.keys(conversations).length} active`,
+    );
+  }
+};
+
+const purgeTimer = setInterval(purgeConversations, 5 * 60 * 1000);
+purgeTimer.unref?.();
+
+/** Images arrive as data URLs. The browser-side resize is cosmetic — anyone can
+ *  call this API directly — so format and size are validated here. */
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+
+const normalizeImages = (images) => {
+  if (!images) return [];
+  const list = Array.isArray(images) ? images : [images];
+
+  return list
+    .filter((url) => {
+      if (typeof url !== "string" || !IMAGE_DATA_URL.test(url)) return false;
+      const bytes = (url.length - url.indexOf(",") - 1) * 0.75;
+      if (bytes > MAX_IMAGE_BYTES) {
+        console.warn(`Image rejected: ${Math.round(bytes / 1024)}KB over limit`);
+        return false;
+      }
+      return true;
+    })
+    .slice(0, MAX_IMAGES);
+};
+
+const buildUserContent = (text, images) => {
+  if (images.length === 0) return text;
+
+  return [
+    { type: "text", text: text || "Olha essa imagem, por favor." },
+    ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+  ];
+};
+
+/** System prompt = base persona + the specialist block (html/css/javascript). */
+const buildSystemMessage = async (req, specialist) => {
+  const base = await req.t.getSystemPrompt();
+  const extra = await req.t.getSpecialistPrompt(specialist);
+  return { role: "system", content: extra ? `${base}\n\n${extra}` : base };
+};
+
+/** Create the conversation, or refresh its system prompt when the student
+ *  switched specialist mid-session. */
+const ensureConversation = async (req, conversationId, specialist) => {
+  const id =
+    conversationId && conversations[conversationId]
+      ? conversationId
+      : generateConversationId();
+
+  if (!conversations[id]) {
+    conversations[id] = {
+      messages: [await buildSystemMessage(req, specialist)],
+      language: req.language,
+      specialist: specialist || "geral",
+    };
+  } else if (specialist && conversations[id].specialist !== specialist) {
+    conversations[id].messages[0] = await buildSystemMessage(req, specialist);
+    conversations[id].specialist = specialist;
+  }
+
+  conversations[id].lastActivity = Date.now();
+  return id;
+};
+
+/** Shown when the student sends an image but no configured model can read one.
+ *  Better an honest limitation than "the AI is offline" — it is not. */
+const noVisionReply = async (req) =>
+  "Consigo te ajudar por texto, mas nesse momento não estou conseguindo abrir imagens. " +
+  "Cola aqui o seu código ou me descreve o que está aparecendo na tela que eu te ajudo do mesmo jeito." +
+  "\n\n" +
+  (await req.t.getSignature());
+
 // ---------------------------------------------------------------------------
 // POST /start-conversation
 // ---------------------------------------------------------------------------
 router.post("/start-conversation", async (req, res) => {
   try {
-    const conversationId = generateConversationId();
-    const systemPrompt = await req.t.getSystemPrompt();
-
-    conversations[conversationId] = {
-      messages: [{ role: "system", content: systemPrompt }],
-      language: req.language,
-    };
+    const { specialist = null } = req.body || {};
+    const conversationId = await ensureConversation(req, null, specialist);
 
     return sendI18nSuccess(res, req, { conversationId });
   } catch (err) {
@@ -44,9 +193,15 @@ router.post("/start-conversation", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/chat", async (req, res) => {
   try {
-    const { message, conversationId = null } = req.body;
+    const {
+      message,
+      conversationId = null,
+      specialist = null,
+      images = null,
+    } = req.body;
+    const attachedImages = normalizeImages(images);
 
-    if (!message || !message.trim()) {
+    if ((!message || !message.trim()) && attachedImages.length === 0) {
       return sendI18nError(
         res,
         req,
@@ -56,37 +211,47 @@ router.post("/chat", async (req, res) => {
       );
     }
 
-    const currentId =
-      conversationId && conversations[conversationId]
-        ? conversationId
-        : generateConversationId();
+    const currentId = await ensureConversation(req, conversationId, specialist);
+    const convo = conversations[currentId];
 
-    if (!conversations[currentId]) {
-      const systemPrompt = await req.t.getSystemPrompt();
-      conversations[currentId] = {
-        messages: [{ role: "system", content: systemPrompt }],
-        language: req.language,
-      };
+    const needsVision = attachedImages.length > 0;
+
+    // Image sent but nothing in the chain can read it — say so plainly.
+    if (needsVision && openaiService.getProviderChain({ needsVision }).length === 0) {
+      const reply = await noVisionReply(req);
+      convo.messages.push({ role: "user", content: message || "[imagem]" });
+      convo.messages.push({ role: "assistant", content: reply });
+      finishTurn(convo);
+
+      return sendI18nSuccess(res, req, {
+        message: reply,
+        conversationId: currentId,
+        provider: "sem-visao",
+        noVision: true,
+      });
     }
 
-    const convo = conversations[currentId];
-    convo.messages.push({ role: "user", content: message });
+    convo.messages.push({
+      role: "user",
+      content: buildUserContent(message, attachedImages),
+    });
 
     try {
-      const limitedMessages = convo.messages.slice(-5);
-      const assistantMessage =
-        await openaiService.createCompletion(limitedMessages);
+      const limitedMessages = buildMessagesForApi(convo);
+      const { content: assistantMessage, provider } =
+        await openaiService.createCompletion(limitedMessages, { needsVision });
 
       convo.messages.push({ role: "assistant", content: assistantMessage });
-      pruneHistory(convo);
+      finishTurn(convo);
 
       return sendI18nSuccess(res, req, {
         message: assistantMessage,
         conversationId: currentId,
-        provider: "openai",
+        provider: provider.name,
+        model: provider.model,
       });
     } catch (apiErr) {
-      console.error("OpenAI error in /chat:", apiErr.message);
+      console.error("All providers failed in /chat:", apiErr.message);
 
       const topic = pickFallbackTopic(message);
       const fallbackMessage = await req.t.getFallbackResponse(topic);
@@ -94,13 +259,13 @@ router.post("/chat", async (req, res) => {
       const fullFallback = `${fallbackMessage}\n\n${signature}`;
 
       convo.messages.push({ role: "assistant", content: fullFallback });
-      pruneHistory(convo);
+      finishTurn(convo);
 
       return sendI18nSuccess(res, req, {
         message: fullFallback,
         conversationId: currentId,
         fallback: true,
-        provider: "openai",
+        provider: "offline",
       });
     }
   } catch (err) {
@@ -113,12 +278,19 @@ router.post("/chat", async (req, res) => {
 // POST /chat/stream  (SSE streaming)
 // ---------------------------------------------------------------------------
 router.post("/chat/stream", async (req, res) => {
-  const { message, conversationId = null } = req.body;
+  const {
+    message,
+    conversationId = null,
+    specialist = null,
+    images = null,
+  } = req.body;
+  const attachedImages = normalizeImages(images);
 
   console.log("📨 Request received:", {
-    message: message.substring(0, 50),
+    message: (message || "").substring(0, 50),
     conversationId,
-    hasBody: !!req.body,
+    specialist,
+    images: attachedImages.length,
   });
 
   // Set SSE headers
@@ -183,7 +355,7 @@ router.post("/chat/stream", async (req, res) => {
   };
 
   // ── Input validation ───────────────────────────────────────────────────────
-  if (!message || !message.trim()) {
+  if ((!message || !message.trim()) && attachedImages.length === 0) {
     console.log("❌ Empty message");
     sendEvent({
       type: "error",
@@ -194,7 +366,7 @@ router.post("/chat/stream", async (req, res) => {
     return;
   }
 
-  if (message.length > 4000) {
+  if (message && message.length > 4000) {
     console.log("❌ Message too long:", message.length);
     sendEvent({
       type: "error",
@@ -206,21 +378,8 @@ router.post("/chat/stream", async (req, res) => {
   }
 
   // ── Conversation setup ─────────────────────────────────────────────────────
-  const currentId =
-    conversationId && conversations[conversationId]
-      ? conversationId
-      : generateConversationId();
-
+  const currentId = await ensureConversation(req, conversationId, specialist);
   console.log("💬 Using conversation ID:", currentId);
-
-  if (!conversations[currentId]) {
-    console.log("🆕 Creating new conversation");
-    const systemPrompt = await req.t.getSystemPrompt();
-    conversations[currentId] = {
-      messages: [{ role: "system", content: systemPrompt }],
-      language: req.language,
-    };
-  }
 
   if (clientClosed) {
     console.log("⚠️ Client already closed before conversation setup");
@@ -229,13 +388,42 @@ router.post("/chat/stream", async (req, res) => {
   }
 
   const convo = conversations[currentId];
-  convo.messages.push({ role: "user", content: message });
+  const needsVision = attachedImages.length > 0;
 
-  const limitedMessages = convo.messages.slice(-5);
+  // Image sent but no configured model can read it — be honest instead of
+  // claiming the AI is down.
+  if (needsVision && openaiService.getProviderChain({ needsVision }).length === 0) {
+    console.log("🖼️ Image received but no vision-capable provider configured");
+    const reply = await noVisionReply(req);
+
+    convo.messages.push({ role: "user", content: message || "[imagem]" });
+    convo.messages.push({ role: "assistant", content: reply });
+    finishTurn(convo);
+
+    sendEvent({ type: "start", conversationId: currentId, model: null });
+    sendEvent({ type: "content", delta: reply });
+    sendEvent({
+      type: "complete",
+      conversationId: currentId,
+      model: null,
+      fallback: false,
+      noVision: true,
+    });
+    endResponse();
+    return;
+  }
+
+  convo.messages.push({
+    role: "user",
+    content: buildUserContent(message, attachedImages),
+  });
+
+  const limitedMessages = buildMessagesForApi(convo);
   console.log("📝 Message history length:", limitedMessages.length);
 
   let assembled = "";
   let usedFallback = false;
+  let activeProvider = null;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const finalize = () => {
@@ -248,14 +436,15 @@ router.post("/chat/stream", async (req, res) => {
 
     if (assembled.trim().length > 0) {
       convo.messages.push({ role: "assistant", content: assembled });
-      pruneHistory(convo);
     }
+    finishTurn(convo);
 
     if (!completedEventSent) {
       const sent = sendEvent({
         type: "complete",
         conversationId: currentId,
-        model: openaiService.getModel(),
+        provider: usedFallback ? "offline" : activeProvider?.name,
+        model: usedFallback ? null : activeProvider?.model,
         fallback: usedFallback,
       });
       completedEventSent = sent;
@@ -320,13 +509,14 @@ router.post("/chat/stream", async (req, res) => {
       return;
     }
 
-    console.log("🤖 Creating OpenAI stream...");
+    // Walks the provider chain (OpenAI → Gemini → Groq) until one answers
+    const { stream, provider } = await openaiService.createStreamingCompletion(
+      limitedMessages,
+      { needsVision },
+    );
+    activeProvider = provider;
 
-    // Cria o stream
-    const stream =
-      await openaiService.createStreamingCompletion(limitedMessages);
-
-    console.log("✅ Stream created, starting to process...");
+    console.log(`✅ Stream created via ${provider.label}, processing...`);
 
     if (clientClosed || res.writableEnded || res.destroyed) {
       console.log("⚠️ Connection closed before processing stream");

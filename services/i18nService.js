@@ -116,6 +116,19 @@ class I18nService {
   }
 
   /**
+   * Get the extra system prompt block for a given specialist (html/css/javascript).
+   * Returns an empty string when the specialist is unknown or has no block.
+   * @param {string} language - Language code
+   * @param {string} specialist - Specialist id
+   * @returns {Promise<string>} Specialist prompt block
+   */
+  async getSpecialistPrompt(language, specialist) {
+    if (!specialist) return '';
+    const translations = await this.loadTranslations(language);
+    return translations.system.specialistPrompts?.[specialist] || '';
+  }
+
+  /**
    * Get code analysis prompt
    * @param {string} language - Language code
    * @returns {Promise<string>} Code analysis prompt
