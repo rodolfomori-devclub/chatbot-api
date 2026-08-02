@@ -10,7 +10,7 @@ class I18nService {
     this.translations = new Map();
     this.challenges = new Map(); // Cache for challenges by language
     this.localesPath = path.join(__dirname, '../locales');
-    this.supportedLanguages = ['pt', 'es'];
+    this.supportedLanguages = ['pt'];
     this.defaultLanguage = 'pt';
     this.loadingPromises = new Map(); // Prevent concurrent loading of same language
     this.challengeLoadingPromises = new Map(); // Prevent concurrent loading of challenges
@@ -18,10 +18,15 @@ class I18nService {
 
   /**
    * Load translations for a specific language with caching
-   * @param {string} language - Language code (pt, es)
+   * @param {string} language - Language code (pt)
    * @returns {Promise<Object>} Translation object
    */
   async loadTranslations(language) {
+    // Normaliza antes de tocar no disco. Sem isso, um Accept-Language de um
+    // idioma que não existe mais (es) tenta ler os arquivos, falha e só então
+    // cai no padrão — enchendo o log de produção de stack trace a cada request.
+    language = this.validateLanguage(language);
+
     // Return cached translations if available
     if (this.translations.has(language)) {
       return this.translations.get(language);
