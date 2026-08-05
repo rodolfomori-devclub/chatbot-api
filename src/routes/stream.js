@@ -29,9 +29,44 @@ const pruneHistory = (convo, keepTurns = HISTORY_TURNS) => {
  *  array — index 0 is the system prompt, so past 5 messages Giovanna silently
  *  lost her persona mid-conversation. The system prompt is now always kept and
  *  never counted against the window. */
-const buildMessagesForApi = (convo) => {
+/** O aluno está mexendo no código dele nesta mensagem?
+ *  Deixar essa decisão a cargo do modelo não funcionou: o system prompt tem
+ *  muita instrução de brevidade e ela sempre vencia, então pergunta sobre o
+ *  próprio código voltava rasa. Aqui a detecção é determinística. */
+const CODIGO_COLADO = /<\/?[a-z][a-z0-9]*[\s>/]|document\.|function\s|const\s|let\s+\w+\s*=|\)\s*;|=>|innerHTML|querySelector/i;
+const NOMES_DO_PROJETO = /lerFoto|PEDIDO|puter|index\.html|styles\.css|scripts\.js|comprovante|caixa-total|caixa-foto|gasto na foto|\.foto\b|\.lista\b|\.quantos\b/i;
+const RELATO_DE_ERRO = /NaN|não funciona|nao funciona|não aparece|nao aparece|não soma|nao soma|deu erro|dá erro|da erro|não roda|nao roda|bugou|quebrou|undefined/i;
+
+const ehSobreOProjeto = (mensagem, temImagem) => {
+  if (temImagem) return true;
+  const t = mensagem || '';
+  return CODIGO_COLADO.test(t) || NOMES_DO_PROJETO.test(t) || RELATO_DE_ERRO.test(t);
+};
+
+/** Instrução injetada só nesta requisição, no fim da lista — a posição mais
+ *  recente é a que o modelo mais respeita. Não entra no histórico guardado. */
+const DIRETIVA_MASTIGADO = [
+  'INSTRUÇÃO PARA ESTA RESPOSTA — vale mais que qualquer regra de brevidade escrita antes:',
+  'O aluno está com a mão no código dele. Responda no MODO MASTIGADO, sem teto de palavras.',
+  'A sua resposta PRECISA ter, em frases corridas e nesta ordem:',
+  '1) uma frase dizendo o que ele está tentando fazer, com as suas palavras;',
+  '2) o que cada pedaço envolvido faz e POR QUE existe — não basta dizer "use isso";',
+  '3) uma analogia curta do dia a dia que explique o conceito principal;',
+  '4) UM bloco de código, com os nomes reais que estão no código dele;',
+  '5) em qual arquivo e em que lugar ele cola isso.',
+  'Explicar linha por linha aqui é desejável. Uma resposta de menos de 120 palavras neste caso está errada.',
+  'Se o que ele pediu já está resolvido no código dele, mostre onde está e explique — não mande mudar.',
+].join('\n');
+
+const buildMessagesForApi = (convo, { mensagemAtual = '', temImagem = false } = {}) => {
   const [system, ...history] = convo.messages;
-  return [system, ...history.slice(-HISTORY_TURNS)];
+  const base = [system, ...history.slice(-HISTORY_TURNS)];
+
+  if (ehSobreOProjeto(mensagemAtual, temImagem)) {
+    return [...base, { role: 'system', content: DIRETIVA_MASTIGADO }];
+  }
+
+  return base;
 };
 
 /** Replace image payloads with a short marker once the turn is done.
@@ -237,7 +272,7 @@ router.post("/chat", async (req, res) => {
     });
 
     try {
-      const limitedMessages = buildMessagesForApi(convo);
+      const limitedMessages = buildMessagesForApi(convo, { mensagemAtual: message, temImagem: needsVision });
       const { content: assistantMessage, provider } =
         await openaiService.createCompletion(limitedMessages, { needsVision });
 
@@ -418,7 +453,7 @@ router.post("/chat/stream", async (req, res) => {
     content: buildUserContent(message, attachedImages),
   });
 
-  const limitedMessages = buildMessagesForApi(convo);
+  const limitedMessages = buildMessagesForApi(convo, { mensagemAtual: message, temImagem: needsVision });
   console.log("📝 Message history length:", limitedMessages.length);
 
   let assembled = "";
