@@ -58,15 +58,44 @@ const DIRETIVA_MASTIGADO = [
   'Se o que ele pediu já está resolvido no código dele, mostre onde está e explique — não mande mudar.',
 ].join('\n');
 
+/** O PEDIDO oficial da aula, copiado do scripts.js do projeto.
+ *  A turma inteira precisa usar o MESMO texto: se cada aluno tiver um pedido
+ *  diferente, a resposta da IA sai num formato diferente e o app dele não bate
+ *  com o que está no telão. Pedir para o modelo "lembrar" 548 caracteres sem
+ *  errar uma vírgula não é confiável, então o texto vai literal na requisição. */
+const PEDIDO_OFICIAL =
+  'Olhe a foto deste comprovante e responda em UMA linha, sem escrever mais nada, com 2 pedaços separados por |. Primeiro pedaço: o emoji da categoria, o nome do estabelecimento dentro de <strong>, e depois cada item comprado com seu valor, um por linha usando <br>. Segundo pedaço: o total pago, só o número, com ponto e sempre com duas casas decimais. As categorias são: 🛒 Mercado, 🚗 Transporte, 🍔 Comida, 💊 Saúde, 🎉 Lazer, 🏠 Casa, 💸 Outros. Exemplo de resposta: 🍔 <strong>Padaria Pão Quente</strong><br>Pão — R$ 5,00<br>Leite — R$ 4,50|9.50';
+
+const PEDE_O_PEDIDO =
+  /(prompt|pedido|comando|instru[çc][ãa]o|texto)[\s\S]{0,80}(puter|\bia\b|intelig[êe]ncia|imagem|foto|comprovante)|(puter|\bia\b)[\s\S]{0,80}(prompt|pedido)/i;
+
+const DIRETIVA_PEDIDO = [
+  'INSTRUÇÃO PARA ESTA RESPOSTA: o aluno está pedindo o texto que vai PARA a IA do Puter.',
+  'Responda com ESTE texto exato, sem reescrever, sem encurtar, sem melhorar e sem traduzir.',
+  'Toda a turma usa o mesmo, então qualquer alteração faz o app dele sair diferente do da aula.',
+  'Entregue num bloco ```js exatamente nesta forma, numa linha só, com aspas simples:',
+  '',
+  `const PEDIDO = '${PEDIDO_OFICIAL}';`,
+  '',
+  'Depois do bloco, explique em duas ou três frases o que esse texto pede: resposta em uma linha só,',
+  'dois pedaços separados por |, o primeiro com o emoji da categoria e os itens, o segundo só com o',
+  'número do total já com duas casas decimais. Não invente outro pedido.',
+].join('\n');
+
 const buildMessagesForApi = (convo, { mensagemAtual = '', temImagem = false } = {}) => {
   const [system, ...history] = convo.messages;
   const base = [system, ...history.slice(-HISTORY_TURNS)];
+  const extras = [];
 
   if (ehSobreOProjeto(mensagemAtual, temImagem)) {
-    return [...base, { role: 'system', content: DIRETIVA_MASTIGADO }];
+    extras.push({ role: 'system', content: DIRETIVA_MASTIGADO });
   }
 
-  return base;
+  if (PEDE_O_PEDIDO.test(mensagemAtual || '')) {
+    extras.push({ role: 'system', content: DIRETIVA_PEDIDO });
+  }
+
+  return [...base, ...extras];
 };
 
 /** Replace image payloads with a short marker once the turn is done.
