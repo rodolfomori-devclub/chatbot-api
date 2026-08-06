@@ -58,13 +58,42 @@ const DIRETIVA_MASTIGADO = [
   'Se o que ele pediu já está resolvido no código dele, mostre onde está e explique — não mande mudar.',
 ].join('\n');
 
-/** O PEDIDO oficial da aula, copiado do scripts.js do projeto.
- *  A turma inteira precisa usar o MESMO texto: se cada aluno tiver um pedido
- *  diferente, a resposta da IA sai num formato diferente e o app dele não bate
- *  com o que está no telão. Pedir para o modelo "lembrar" 548 caracteres sem
- *  errar uma vírgula não é confiável, então o texto vai literal na requisição. */
-const PEDIDO_OFICIAL =
-  'Olhe a foto deste comprovante e responda em UMA linha, sem escrever mais nada, com 2 pedaços separados por |. Primeiro pedaço: o emoji da categoria, o nome do estabelecimento dentro de <strong>, e depois cada item comprado com seu valor, um por linha usando <br>. Segundo pedaço: o total pago, só o número, com ponto e sempre com duas casas decimais. As categorias são: 🛒 Mercado, 🚗 Transporte, 🍔 Comida, 💊 Saúde, 🎉 Lazer, 🏠 Casa, 💸 Outros. Exemplo de resposta: 🍔 <strong>Padaria Pão Quente</strong><br>Pão — R$ 5,00<br>Leite — R$ 4,50|9.50';
+/** Os arquivos oficiais da aula. A turma inteira precisa terminar com o MESMO
+ *  código: se a Giovanna inventar um CSS ou um texto de prompt diferente, a
+ *  tela do aluno não bate com a do telão e ele acha que errou. */
+const { PEDIDO_OFICIAL, cssDasClasses } = require('../aula/projeto');
+
+/** Classes do projeto que aparecem no styles.css da aula. */
+const CLASSES_DA_AULA = [
+  'caixa-topo',
+  'caixa-total',
+  'caixa-foto',
+  'comprovante',
+  'itens',
+  'total-nota',
+  'rodape',
+  'lista',
+  'total',
+  'quantos',
+  'foto',
+];
+
+const PEDE_ESTILO = /\b(css|estiliz|estilo|deixar bonit|design|visual|cor|cores|layout|arredond|sombra|espa[çc]amento|margem|padding)\b/i;
+
+/** O aluno pediu estilo para alguma parte do projeto? Se sim, devolvemos o CSS
+ *  oficial daquelas classes em vez de deixar o modelo inventar valores. */
+const classesCitadas = (mensagem) => {
+  const t = mensagem || '';
+  const achadas = CLASSES_DA_AULA.filter((c) =>
+    new RegExp(`[.\\s"'\`>]${c}\\b`, 'i').test(t),
+  );
+
+  /* "total" está dentro de "total-nota" e de "caixa-total"; sem isso o aluno
+     que pede o estilo do total-nota recebia também o CSS do cartão verde. */
+  return achadas.filter(
+    (c) => !achadas.some((outra) => outra !== c && outra.includes(c)),
+  );
+};
 
 const PEDE_O_PEDIDO =
   /(prompt|pedido|comando|instru[çc][ãa]o|texto)[\s\S]{0,80}(puter|\bia\b|intelig[êe]ncia|imagem|foto|comprovante)|(puter|\bia\b)[\s\S]{0,80}(prompt|pedido)/i;
@@ -93,6 +122,28 @@ const buildMessagesForApi = (convo, { mensagemAtual = '', temImagem = false } = 
 
   if (PEDE_O_PEDIDO.test(mensagemAtual || '')) {
     extras.push({ role: 'system', content: DIRETIVA_PEDIDO });
+  }
+
+  if (PEDE_ESTILO.test(mensagemAtual || '')) {
+    const classes = classesCitadas(mensagemAtual);
+    const css = classes.length > 0 ? cssDasClasses(classes) : '';
+
+    if (css) {
+      extras.push({
+        role: 'system',
+        content: [
+          'INSTRUÇÃO PARA ESTA RESPOSTA: o aluno pediu o estilo de uma parte do projeto da aula.',
+          'O CSS oficial dessas classes já existe e está abaixo. Entregue EXATAMENTE estas regras,',
+          'com os mesmos valores — não invente cor, padding, sombra nem borda, e não "melhore".',
+          'A turma toda usa este CSS; qualquer valor diferente faz a tela dele sair diferente do telão.',
+          'Pode remover os comentários se quiser, mas os seletores e os valores são estes:',
+          '',
+          css,
+          '',
+          'Explique com as suas palavras o que as principais propriedades fazem, e diga para colar no styles.css.',
+        ].join('\n'),
+      });
+    }
   }
 
   return [...base, ...extras];
